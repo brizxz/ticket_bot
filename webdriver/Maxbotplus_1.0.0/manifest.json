@@ -328,9 +328,8 @@
         },
         {
             "matches": [
-                "https://msg.cityline.com/*",
-                "https://event.cityline.com/utsvInternet/*/home?*",
-                "https://event.cityline.com/utsvInternet/*/login?*",
+                "https://msg.cityline.com/*.html*",
+                "https://*.cityline.com/utsvInternet/*/home?lang=TW",
                 "https://event.cityline.com/",
                 "https://event.cityline.com/queue?loc=*"
             ],
@@ -342,9 +341,8 @@
         },
         {
             "matches": [
-                "https://msg.cityline.com/*",
-                "https://event.cityline.com/utsvInternet/*/home?*",
-                "https://event.cityline.com/utsvInternet/*/login?*",
+                "https://msg.cityline.com/*.html*",
+                "https://*.cityline.com/utsvInternet/*/home?lang=TW",
                 "https://event.cityline.com/",
                 "https://event.cityline.com/queue?loc=*"
             ],
@@ -455,28 +453,7 @@
                 "jquery.min.js",
                 "js/kktix_registrations_reload.js"
             ]
-        },
-        {
-            "matches": [
-                "https://netbank.hncb.com.tw/netbank/servlet/TrxDispatcher?trx=com.lb.wibc.trx.CardPromoteOverall_RWD&state=prompt"
-            ],
-            "run_at": "document_start",
-            "js": [
-                "jquery.min.js",
-                "js/hncb_fill.js"
-            ]
-        },
-        {
-            "matches": [
-                "https://fantopia.io/events-tickets?eventsKey=*"
-            ],
-            "run_at": "document_end",
-            "js": [
-                "jquery.min.js",
-                "js/fantopia_fill.js"
-            ]
         }
-        
     ],
-    "version": "1.0.27"
+    "version": "1.0.25"
 }

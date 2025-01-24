@@ -10,15 +10,17 @@ import subprocess
 import sys
 import threading
 from typing import Optional
+from selenium.webdriver.common.by import By
 
 import requests
+import datetime
 
 CONST_FROM_TOP_TO_BOTTOM = "from top to bottom"
 CONST_FROM_BOTTOM_TO_TOP = "from bottom to top"
 CONST_CENTER = "center"
 CONST_RANDOM = "random"
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
 def get_ip_address():
     gethostname = None
@@ -141,12 +143,6 @@ def format_config_keyword_for_json(user_input):
 def is_text_match_keyword(keyword_string, text):
     is_match_keyword = True
     if len(keyword_string) > 0 and len(text) > 0:
-
-        # directly input text into arrray field.
-        if len(keyword_string) > 0:
-            if not '"' in keyword_string:
-                keyword_string = '"' + keyword_string + '"'
-        
         is_match_keyword = False
         keyword_array = []
         try:

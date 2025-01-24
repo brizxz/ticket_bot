@@ -1,44 +1,49 @@
 import base64
-import requests
+import json
 from io import BytesIO
+
+import requests
 from PIL import Image
-from typing import Optional
-from requests.exceptions import RequestException
 
-class NonBrowser:
-    def __init__(self, domain_name: str = "tixcraft.com") -> None:
-        self.session = requests.Session()
-        self.set_domain(domain_name)
 
-    def set_cookies(self, cookies: Optional[dict]) -> bool:
-        if cookies is not None:
-            [self.session.cookies.set(cookie["name"], cookie["value"]) for cookie in cookies]
-            return True
-        return False
+class NonBrowser():
+    def __init__(self, domain_name = "tixcraft.com") -> None:
+        self.Session = requests.session()
+        self.Set_Domain(domain_name)
 
-    def get_cookies(self) -> dict:
-        return self.session.cookies.get_dict()
+    def Set_cookies(self, cookies:dict):
+        ret = False
+        if not cookies is None:
+            for cookie in cookies:
+                self.Session.cookies.set(cookie["name"],cookie["value"])
+                ret = True
+        return ret
 
-    def set_headers(self, header: str) -> None:
-        self.session.headers = header
+    def Get_cookies(self):
+        return self.Session.cookies.get_dict()
 
-    def set_domain(self, domain_name: str, captcha_url: str = "ticket/captcha", refresh_url: str = "ticket/captcha?refresh=1") -> None:
-        self.url = f"https://{domain_name}/{captcha_url}"
-        self.refresh_url = f"https://{domain_name}/{refresh_url}"
+    def set_headers(self, header:str):
+        self.Session.headers = header
 
-    def request_captcha(self) -> bytes:
-        response = self.session.get(self.url, stream=True)
-        img = Image.open(BytesIO(response.content))
+    def Set_Domain(self, domain_name, captcha_url="ticket/captcha", refresh_url="ticket/captcha?refresh=1"):
+        self.url = "https://%s/%s" % (domain_name, captcha_url)
+        self.refresh_url = "https://%s/%s" % (domain_name, refresh_url)
+
+    def Request_Captcha(self):
+        img = Image.open(BytesIO(self.Session.get(self.url, stream = True).content))
         output_buffer = BytesIO()
         img.save(output_buffer, format='JPEG')
         binary_data = output_buffer.getvalue()
-        return base64.b64encode(binary_data)
+        base64_data = base64.b64encode(binary_data)
+        return base64_data
 
-    def request_refresh_captcha(self) -> str:
+    def Request_Refresh_Captcha(self) -> str:
         try:
-            response = self.session.get(self.refresh_url, stream=True)
-            if response.status_code == 200:
-                return response.json().get("url", "")
-        except RequestException:
-            pass
-        return ""
+            result = self.Session.get(self.refresh_url, stream = True)
+            if result.status_code == 200:
+                json_data = json.loads(result.text)
+                return json_data.get("url","")
+            else:
+                return ""
+        except Exception as e:
+            return ""

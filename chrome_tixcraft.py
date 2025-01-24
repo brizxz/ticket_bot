@@ -34,6 +34,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from urllib3.exceptions import InsecureRequestWarning
+from selenium.webdriver.chrome.options import Options
 
 import util
 from NonBrowser import NonBrowser
@@ -44,7 +45,7 @@ except Exception as exc:
     print(exc)
     pass
 
-CONST_APP_VERSION = "MaxBot (2024.04.19)"
+CONST_APP_VERSION = "MaxBot (2024.04.10)"
 
 CONST_MAXBOT_ANSWER_ONLINE_FILE = "MAXBOT_ONLINE_ANSWER.txt"
 CONST_MAXBOT_CONFIG_FILE = "settings.json"
@@ -115,7 +116,7 @@ CONST_WEBDRIVER_TYPE_UC = "undetected_chromedriver"
 CONST_WEBDRIVER_TYPE_DP = "DrissionPage"
 CONST_WEBDRIVER_TYPE_NODRIVER = "nodriver"
 CONST_CHROME_FAMILY = ["chrome","edge","brave"]
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 CONST_PREFS_DICT = {
     "credentials_enable_service": False, 
     "in_product_help.snoozed_feature.IPH_LiveCaption.is_dismissed": True,
@@ -137,13 +138,34 @@ ssl._create_default_https_context = ssl._create_unverified_context
 logging.basicConfig()
 logger = logging.getLogger('logger')
 
+def break_shadow_dom(driver):
+    script = """
+    (function() {
+    const originalAttachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function(options) {
+        if (options && options.mode === 'closed') {
+        options.mode = 'open';
+        }
+        return originalAttachShadow.call(this, options);
+    };
+    })();
+    """
+
+    # 注意：要在 get() 之前執行
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": script}
+    )
+
+
 def get_config_dict(args):
     app_root = util.get_app_root()
     config_filepath = os.path.join(app_root, CONST_MAXBOT_CONFIG_FILE)
 
     # allow assign config by command line.
-    if args.input:
-        config_filepath = args.input
+    if not args.input is None:
+        if len(args.input) > 0:
+            config_filepath = args.input
 
     config_dict = None
     if os.path.isfile(config_filepath):
@@ -151,34 +173,43 @@ def get_config_dict(args):
         with open(config_filepath) as json_data:
             config_dict = json.load(json_data)
 
-            if args.headless is not None:
+            if not args.headless is None:
                 config_dict["advanced"]["headless"] = util.t_or_f(args.headless)
 
-            if args.homepage:
-                config_dict["homepage"] = args.homepage
+            if not args.homepage is None:
+                if len(args.homepage) > 0:
+                    config_dict["homepage"] = args.homepage
 
-            if args.ticket_number:
-                config_dict["ticket_number"] = args.ticket_number
+            if not args.ticket_number is None:
+                if args.ticket_number > 0:
+                    config_dict["ticket_number"] = args.ticket_number
 
-            if args.browser:
-                config_dict["browser"] = args.browser
+            if not args.browser is None:
+                if len(args.browser) > 0:
+                    config_dict["browser"] = args.browser
 
-            if args.tixcraft_sid:
-                config_dict["advanced"]["tixcraft_sid"] = args.tixcraft_sid
+            if not args.tixcraft_sid is None:
+                if len(args.tixcraft_sid) > 0:
+                    config_dict["advanced"]["tixcraft_sid"] = args.tixcraft_sid
 
-            if args.ibonqware:
-                config_dict["advanced"]["ibonqware"] = args.ibonqware
+            if not args.ibonqware is None:
+                if len(args.ibonqware) > 0:
+                    config_dict["advanced"]["ibonqware"] = args.ibonqware
 
-            if args.kktix_account:
-                config_dict["advanced"]["kktix_account"] = args.kktix_account
-            if args.kktix_password:
-                config_dict["advanced"]["kktix_password_plaintext"] = args.kktix_password
+            if not args.kktix_account is None:
+                if len(args.kktix_account) > 0:
+                    config_dict["advanced"]["kktix_account"] = args.kktix_account
+            if not args.kktix_password is None:
+                if len(args.kktix_password) > 0:
+                    config_dict["advanced"]["kktix_password_plaintext"] = args.kktix_password
 
-            if args.proxy_server:
-                config_dict["advanced"]["proxy_server_port"] = args.proxy_server
+            if not args.proxy_server is None:
+                if len(args.proxy_server) > 2:
+                    config_dict["advanced"]["proxy_server_port"] = args.proxy_server
 
-            if args.window_size:
-                config_dict["advanced"]["window_size"] = args.window_size
+            if not args.window_size is None:
+                if len(args.window_size) > 2:
+                    config_dict["advanced"]["window_size"] = args.window_size
 
             # special case for headless to enable away from keyboard mode.
             is_headless_enable_ocr = False
@@ -315,7 +346,11 @@ def get_chrome_options(webdriver_path, config_dict):
     return chrome_options
 
 def load_chromdriver_normal(config_dict, driver_type):
-    show_debug_message = config_dict["advanced"]["verbose"]
+    show_debug_message = True       # debug.
+    show_debug_message = False      # online
+
+    if config_dict["advanced"]["verbose"]:
+        show_debug_message = True
 
     driver = None
 
@@ -323,7 +358,8 @@ def load_chromdriver_normal(config_dict, driver_type):
     webdriver_path = os.path.join(Root_Dir, "webdriver")
     chromedriver_path = get_chromedriver_path(webdriver_path)
 
-    os.makedirs(webdriver_path, exist_ok=True)
+    if not os.path.exists(webdriver_path):
+        os.mkdir(webdriver_path)
 
     if not os.path.exists(chromedriver_path):
         print("WebDriver not exist, try to download to:", webdriver_path)
@@ -338,11 +374,15 @@ def load_chromdriver_normal(config_dict, driver_type):
         chrome_options = get_chrome_options(webdriver_path, config_dict)
         try:
             driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-        except WebDriverException as exc:
+        except Exception as exc:
             error_message = str(exc)
             if show_debug_message:
                 print(exc)
-            left_part = error_message.split("Stacktrace:")[0] if "Stacktrace:" in error_message else None
+            left_part = None
+            if "Stacktrace:" in error_message:
+                left_part = error_message.split("Stacktrace:")[0]
+                print(left_part)
+
             if "This version of ChromeDriver only supports Chrome version" in error_message:
                 print(CONST_CHROME_VERSION_NOT_MATCH_EN)
                 print(CONST_CHROME_VERSION_NOT_MATCH_TW)
@@ -360,12 +400,12 @@ def load_chromdriver_normal(config_dict, driver_type):
                 try:
                     chrome_options = get_chrome_options(webdriver_path, config_dict)
                     driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-                except WebDriverException as exc2:
+                except Exception as exc2:
                     print("Selenium 4.11.0 Release with Chrome For Testing Browser.")
                     try:
                         chrome_options = get_chrome_options(webdriver_path, config_dict)
                         driver = webdriver.Chrome(service=Service(), options=chrome_options)
-                    except WebDriverException as exc3:
+                    except Exception as exc3:
                         print(exc3)
                         pass
 
@@ -600,7 +640,6 @@ def get_driver_by_config(config_dict):
     homepage = config_dict["homepage"]
 
     # output config:
-    print("current time:", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print("maxbot app version:", CONST_APP_VERSION)
     print("python version:", platform.python_version())
     print("platform:", platform.platform())
@@ -770,6 +809,7 @@ def get_driver_by_config(config_dict):
             if config_dict["browser"] in CONST_CHROME_FAMILY:
                 driver.execute_cdp_cmd('Network.setBlockedURLs', {"urls": NETWORK_BLOCKED_URLS})
                 driver.execute_cdp_cmd('Network.enable', {})
+                break_shadow_dom(driver)
 
             if 'kktix.c' in homepage:
                 if len(config_dict["advanced"]["kktix_account"])>0:
@@ -2021,7 +2061,7 @@ def tixcraft_get_ocr_answer(driver, ocr, ocr_captcha_image_source, Captcha_Brows
 
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
             if not Captcha_Browser is None:
-                img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+                img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
 
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
             image_id = 'TicketForm_verifyCode-image'
@@ -2055,7 +2095,7 @@ def tixcraft_get_ocr_answer(driver, ocr, ocr_captcha_image_source, Captcha_Brows
                     if img_base64 is None:
                         if not Captcha_Browser is None:
                             print("canvas get image fail, use plan_b: NonBrowser")
-                            img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+                            img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
                 except Exception as exc:
                     if show_debug_message:
                         print("canvas exception:", str(exc))
@@ -2134,7 +2174,7 @@ def tixcraft_auto_ocr(driver, ocr, away_from_keyboard_enable, previous_answer, C
                         else:
                             # Non_Browser solution.
                             if not Captcha_Browser is None:
-                                new_captcha_url = Captcha_Browser.request_refresh_captcha() #取得新的CAPTCHA
+                                new_captcha_url = Captcha_Browser.Request_Refresh_Captcha() #取得新的CAPTCHA
                                 if new_captcha_url != "":
                                     tixcraft_change_captcha(driver, new_captcha_url) #更改CAPTCHA圖
     else:
@@ -2349,7 +2389,6 @@ def tixcraft_ticket_main(driver, config_dict, ocr, Captcha_Browser, domain_name)
         is_ticket_number_assigned = ticket_number_select_fill(driver, select_obj, ticket_number)
 
     # must wait ticket number assign to focus captcha.
-
     if is_ticket_number_assigned:
         tixcraft_ticket_main_ocr(driver, config_dict, ocr, Captcha_Browser, domain_name)
 
@@ -2358,7 +2397,7 @@ def tixcraft_ticket_main_ocr(driver, config_dict, ocr, Captcha_Browser, domain_n
     if not config_dict["ocr_captcha"]["enable"]:
         away_from_keyboard_enable = False
     ocr_captcha_image_source = config_dict["ocr_captcha"]["image_source"]
-        
+
     if not config_dict["ocr_captcha"]["enable"]:
         tixcraft_keyin_captcha_code(driver)
     else:
@@ -2424,30 +2463,25 @@ def kktix_press_next_button(driver):
         button_count = len(but_button_list)
         #print("button_count:",button_count)
         if button_count > 0:
-            btn = but_button_list[button_count-1]
             try:
-                driver.set_script_timeout(0.1)
-                driver.execute_script("arguments[0].focus();", btn)
+                #print("click on last button:", button_count)
+                but_button_list[button_count-1].click()
+                time.sleep(0.3)
                 ret = True
             except Exception as exc:
+                print(exc)
                 pass
-            for retry_idx in range(4):
-                try:
-                    #print("click on last button:", button_count)
-                    btn.click()
-                    time.sleep(0.2)
-                    ret = True
-                except Exception as exc:
-                    print(exc)
-                    pass
-                if ret:
-                    break
 
     return ret
 
 
 def kktix_travel_price_list(driver, config_dict, kktix_area_auto_select_mode, kktix_area_keyword):
-    show_debug_message = config_dict["advanced"]["verbose"]
+    show_debug_message = True       # debug.
+    show_debug_message = False      # online
+
+    if config_dict["advanced"]["verbose"]:
+        show_debug_message = True
+
     ticket_number = config_dict["ticket_number"]
 
     areas = None
@@ -2652,7 +2686,11 @@ def kktix_travel_price_list(driver, config_dict, kktix_area_auto_select_mode, kk
     return is_dom_ready, is_ticket_number_assigned, areas
 
 def kktix_assign_ticket_number(driver, config_dict, kktix_area_keyword):
-    show_debug_message = config_dict["advanced"]["verbose"]
+    show_debug_message = True       # debug.
+    show_debug_message = False      # online
+
+    if config_dict["advanced"]["verbose"]:
+        show_debug_message = True
 
     ticket_number_str = str(config_dict["ticket_number"])
     auto_select_mode = config_dict["area_auto_select"]["mode"]
@@ -2711,7 +2749,11 @@ def kktix_assign_ticket_number(driver, config_dict, kktix_area_keyword):
 
 
 def kktix_check_agree_checkbox(driver, config_dict):
-    show_debug_message = config_dict["advanced"]["verbose"]
+    show_debug_message = True       # debug.
+    show_debug_message = False      # online
+
+    if config_dict["advanced"]["verbose"]:
+        show_debug_message = True
 
     is_finish_checkbox_click = False
     is_dom_ready = False
@@ -2832,7 +2874,11 @@ def set_kktix_control_label_text(driver, config_dict):
 
 
 def kktix_reg_captcha(driver, config_dict, fail_list, registrationsNewApp_div):
-    show_debug_message = config_dict["advanced"]["verbose"]
+    show_debug_message = True       # debug.
+    show_debug_message = False      # online
+
+    if config_dict["advanced"]["verbose"]:
+        show_debug_message = True
 
     answer_list = []
 
@@ -2871,7 +2917,7 @@ def kktix_reg_captcha(driver, config_dict, fail_list, registrationsNewApp_div):
 
             # due multi next buttons(pick seats/best seats)
             kktix_press_next_button(driver)
-            time.sleep(0.5)
+            time.sleep(0.75)
 
             fail_list.append(inferred_answer_string)
         #print("new fail_list:", fail_list)
@@ -5706,10 +5752,10 @@ def set_non_browser_cookies(driver, url, Captcha_Browser):
         #PS: need set cookies once, if user change domain.
         if not Captcha_Browser is None:
             try:
-                Captcha_Browser.set_cookies(driver.get_cookies())
+                Captcha_Browser.Set_cookies(driver.get_cookies())
             except Exception as e:
                 pass
-            Captcha_Browser.set_domain(domain_name)
+            Captcha_Browser.Set_Domain(domain_name)
 
 def ticketmaster_parse_zone_info(driver, config_dict):
     show_debug_message = True       # debug.
@@ -6188,7 +6234,7 @@ def kktix_main(driver, url, config_dict):
                     print("搶票成功, 帳號:", kktix_account)
 
                     script_name = "chrome_tixcraft"
-                    if config_dict["webdriver_type"] == CONST_WEBDRIVER_TYPE_NODRIVER:
+                    if config_dict["advanced"]["webdriver_type"] == CONST_WEBDRIVER_TYPE_NODRIVER:
                         script_name = "nodriver_tixcraft"
                     threading.Thread(target=util.launch_maxbot, args=(script_name,"", url, kktix_account, kktix_password,"","false",)).start()
 
@@ -6748,8 +6794,7 @@ def cityline_close_second_tab(driver):
 def cityline_main(driver, url, config_dict):
     # https://msg.cityline.com/ https://event.cityline.com/
     if 'msg.cityline.com' in url or 'event.cityline.com' in url:
-        #cityline_auto_retry_access(driver, config_dict)
-        pass
+        cityline_auto_retry_access(driver, config_dict)
 
     cityline_close_second_tab(driver)
 
@@ -6983,64 +7028,45 @@ def ibon_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
 
         img_base64 = None
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
-            # print("============================")
             if not Captcha_Browser is None:
-                img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+                img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
-            # here
             image_id = 'chk_pic'
             image_element = None
             try:
-                my_css_selector = ".chk_pic"
+                my_css_selector = "#" + image_id
                 image_element = driver.find_elements(By.CSS_SELECTOR, my_css_selector)
             except Exception as exc:
-                print("查找验证码图片元素时发生异常：", str(exc))
-
-            print("image_element:", image_element)
-            if image_element and len(image_element) > 0:
-                img_element = image_element[0]  # 获取第一个匹配的元素
-                # 继续处理
-            else:
-                print("未找到验证码图片元素")
+                pass
 
             if not image_element is None:
                 try:
-                    driver.set_script_timeout(5)
+                    driver.set_script_timeout(1)
                     form_verifyCode_base64 = driver.execute_async_script("""
-                        var callback = arguments[arguments.length - 1];
                         var canvas = document.createElement('canvas');
                         var context = canvas.getContext('2d');
-                        var img = document.querySelector('%s');
-                        if (img != null) {
-                            canvas.height = img.naturalHeight;
-                            canvas.width = img.naturalWidth;
-                            context.drawImage(img, 0, 0);
-                            callback(canvas.toDataURL());
-                        } else {
-                            callback(null);
-                        }
-                    """ % (my_css_selector))
-                    if form_verifyCode_base64:
+                        var img = document.getElementById('%s');
+                        if(img!=null) {
+                        canvas.height = img.naturalHeight;
+                        canvas.width = img.naturalWidth;
+                        context.drawImage(img, 0, 0);
+                        callback = arguments[arguments.length - 1];
+                        callback(canvas.toDataURL()); }
+                        """ % (image_id))
+                    if not form_verifyCode_base64 is None:
                         img_base64 = base64.b64decode(form_verifyCode_base64.split(',')[1])
-                    else:
-                        print("未能获取到验证码的Base64数据")
                 except Exception as exc:
-                    print("执行JavaScript获取验证码图片时发生异常：", str(exc))
-                
-                
-                
-        print("img_base64 is ", img_base64)
+                    if show_debug_message:
+                        print("canvas exception:", str(exc))
+                    pass
         if not img_base64 is None:
             try:
                 ocr_answer = ocr.classification(img_base64)
-                # debug
-                # print("ocr_answer is ", ocr_answer)
             except Exception as exc:
                 pass
 
         ocr_done_time = time.time()
         ocr_elapsed_time = ocr_done_time - ocr_start_time
-        print("ocr_answer is ", ocr_answer)
         print("ocr elapsed time:", "{:.3f}".format(ocr_elapsed_time))
     else:
         print("ddddocr is None")
@@ -7068,7 +7094,7 @@ def ibon_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
                     else:
                         # Non_Browser solution.
                         if not Captcha_Browser is None:
-                            new_captcha_url = Captcha_Browser.request_refresh_captcha() #取得新的CAPTCHA
+                            new_captcha_url = Captcha_Browser.Request_Refresh_Captcha() #取得新的CAPTCHA
                             if new_captcha_url != "":
                                 #PS:[TODO]
                                 #tixcraft_change_captcha(driver, new_captcha_url) #更改CAPTCHA圖
@@ -7127,6 +7153,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
         ibon_dict["start_time"]=None
         ibon_dict["done_time"]=None
         ibon_dict["elapsed_time"]=None
+
 
     home_url_list = ['https://ticket.ibon.com.tw/'
     ,'https://ticket.ibon.com.tw/index/entertainment'
@@ -7217,6 +7244,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
                 if 'PRODUCT_ID=' in url.upper():
                     # step 1: select area.
                     is_match_target_feature = True
+                    
                     is_price_assign_by_bot = ibon_performance(driver, config_dict)
                     #print("is_price_assign_by_bot:", is_price_assign_by_bot)
                     if not is_price_assign_by_bot:
@@ -7230,7 +7258,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
                 if is_do_ibon_performance_with_ticket_number:
                     if config_dict["advanced"]["disable_adjacent_seat"]:
                         is_finish_checkbox_click = ibon_allow_not_adjacent_seat(driver, config_dict)
-
+                    
                     # captcha
                     is_captcha_sent = False
                     if config_dict["ocr_captcha"]["enable"]:
@@ -7250,6 +7278,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
                     is_ticket_number_assigned = ibon_ticket_number_auto_select(driver, config_dict)
                     #print("is_ticket_number_assigned:", is_ticket_number_assigned)
                     if is_ticket_number_assigned:
+                        pass
                         if is_captcha_sent:
                             click_ret = ibon_purchase_button_press(driver)
 
@@ -7264,6 +7293,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
                             #is_button_clicked = press_button(driver, By.CSS_SELECTOR, 'a.btn.btn-primary')
                             # plan-B, easy and better than plan-A
                             try:
+                                print("go back and refresh.")
                                 driver.back()
                                 driver.refresh()
                             except Exception as exc:
@@ -8150,7 +8180,7 @@ def hkticketing_content_refresh(driver, url, config_dict):
     , "System.ComponentModel.Win32Exception"
     , "Access Denied"
     , "Your attempt to access the web site has been blocked by"
-    , "This request was blocked by"
+    , "This requset was blocked by"
     ]
     if is_check_access_deined:
         domain_name = url.split('/')[2]
@@ -8762,7 +8792,7 @@ def ticket_allow_not_adjacent_seat(driver, config_dict):
 
 def kham_switch_to_auto_seat(driver):
     is_switch_to_auto_seat = False
-    form_verifyCode = None
+
     btn_switch_to_auto_seat = None
     try:
         my_css_selector = '#BUY_TYPE_2'
@@ -8800,7 +8830,7 @@ def kham_switch_to_auto_seat(driver):
 
 def ticket_switch_to_auto_seat(driver):
     is_switch_to_auto_seat = False
-    form_verifyCode = None
+
     btn_switch_to_auto_seat = None
     try:
         my_css_selector = 'input[value="BUY_TYPE_2"]'
@@ -8980,7 +9010,7 @@ def kham_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
         img_base64 = None
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
             if not Captcha_Browser is None:
-                img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+                img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
             image_id = 'chk_pic'
             image_element = None
@@ -9045,7 +9075,7 @@ def kham_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
                     else:
                         # Non_Browser solution.
                         if not Captcha_Browser is None:
-                            new_captcha_url = Captcha_Browser.request_refresh_captcha() #取得新的CAPTCHA
+                            new_captcha_url = Captcha_Browser.Request_Refresh_Captcha() #取得新的CAPTCHA
                             if new_captcha_url != "":
                                 #PS:[TODO]
                                 #tixcraft_change_captcha(driver, new_captcha_url) #更改CAPTCHA圖
@@ -9165,8 +9195,8 @@ def kham_main(driver, url, config_dict, ocr, Captcha_Browser):
 
             if config_dict["ocr_captcha"]["enable"]:
                 if not Captcha_Browser is None:
-                    Captcha_Browser.set_cookies(driver.get_cookies())
-                    Captcha_Browser.set_domain(domain_name)
+                    Captcha_Browser.Set_cookies(driver.get_cookies())
+                    Captcha_Browser.Set_Domain(domain_name)
             break
 
     #https://kham.com.tw/application/UTK02/UTK0201_.aspx?PRODUCT_ID=XXX
@@ -9260,7 +9290,7 @@ def kham_main(driver, url, config_dict, ocr, Captcha_Browser):
             captcha_url = '/pic.aspx?TYPE=%s' % (model_name)
             #PS: need set cookies once, if user change domain.
             if not Captcha_Browser is None:
-                Captcha_Browser.set_domain(domain_name, captcha_url=captcha_url)
+                Captcha_Browser.Set_Domain(domain_name, captcha_url=captcha_url)
 
             is_captcha_sent = False
 
@@ -9328,7 +9358,7 @@ def kham_main(driver, url, config_dict, ocr, Captcha_Browser):
             captcha_url = '/pic.aspx?TYPE=%s' % (model_name)
             #PS: need set cookies once, if user change domain.
             if not Captcha_Browser is None:
-                Captcha_Browser.set_domain(domain_name, captcha_url=captcha_url)
+                Captcha_Browser.Set_Domain(domain_name, captcha_url=captcha_url)
 
             is_captcha_sent = False
             if config_dict["ocr_captcha"]["enable"]:
@@ -9378,7 +9408,7 @@ def kham_main(driver, url, config_dict, ocr, Captcha_Browser):
                 captcha_url = '/pic.aspx?TYPE=%s' % (model_name)
                 #PS: need set cookies once, if user change domain.
                 if not Captcha_Browser is None:
-                    Captcha_Browser.set_domain(domain_name, captcha_url=captcha_url)
+                    Captcha_Browser.Set_Domain(domain_name, captcha_url=captcha_url)
 
                 kham_captcha(driver, config_dict, ocr, Captcha_Browser, model_name)
 
@@ -10193,7 +10223,7 @@ def ticketplus_auto_ocr(driver, config_dict, ocr, previous_answer, Captcha_Brows
         img_base64 = None
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
             if not Captcha_Browser is None:
-                img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+                img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
             image_id = 'span.captcha-img'
             image_element = None
@@ -10656,8 +10686,8 @@ def ticketplus_main(driver, url, config_dict, ocr, Captcha_Browser):
             if config_dict["ocr_captcha"]["enable"]:
                 domain_name = url.split('/')[2]
                 if not Captcha_Browser is None:
-                    Captcha_Browser.set_cookies(driver.get_cookies())
-                    Captcha_Browser.set_domain(domain_name)
+                    Captcha_Browser.Set_cookies(driver.get_cookies())
+                    Captcha_Browser.Set_Domain(domain_name)
 
             is_user_signin = ticketplus_account_auto_fill(driver, config_dict)
             if is_user_signin:
@@ -10863,6 +10893,7 @@ def resize_window(driver, config_dict):
 
 def main(args):
     config_dict = get_config_dict(args)
+
     driver = None
     if not config_dict is None:
         driver = get_driver_by_config(config_dict)

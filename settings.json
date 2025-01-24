@@ -1,8 +1,8 @@
 {
-    "homepage": "https://ticketplus.com.tw/",
+    "homepage": "https://ticket.ibon.com.tw/",
     "browser": "chrome",
-    "language": "English",
-    "ticket_number": 1,
+    "language": "\u7e41\u9ad4\u4e2d\u6587",
+    "ticket_number": 2,
     "ocr_captcha": {
         "enable": true,
         "beta": true,
@@ -12,22 +12,18 @@
     "webdriver_type": "undetected_chromedriver",
     "date_auto_select": {
         "enable": true,
-        "date_keyword": "\"\"",
+        "date_keyword": "",
         "mode": "random"
     },
     "area_auto_select": {
         "enable": true,
         "mode": "random",
-        "area_keyword": "\"\""
+        "area_keyword": ""
     },
     "keyword_exclude": "\"\u8f2a\u6905\",\"\u8eab\u969c\",\"\u8eab\u5fc3 \u969c\u7919\",\"Restricted View\",\"\u71c8\u67f1\u906e\u853d\",\"\u8996\u7dda\u4e0d\u5b8c\u6574\"",
     "kktix": {
         "auto_press_next_step_button": true,
-        "auto_fill_ticket_number": true,
-        "max_dwell_time": 10000
-    },
-    "cityline": {
-        "cityline_queue_retry": true
+        "auto_fill_ticket_number": true
     },
     "tixcraft": {
         "pass_date_is_sold_out": true,
@@ -39,28 +35,28 @@
             "order": true,
             "filename": "ding-dong.wav"
         },
-        "tixcraft_sid": "is0rqhlmc0kq1ihi2mkjrusae4",
+        "tixcraft_sid": "nhjqqceqrl049tmcd7ii3cp8l4",
         "ibonqware": "",
         "facebook_account": "",
-        "kktix_account": "yussp0002@gmail.com",
+        "kktix_account": "",
         "fami_account": "",
         "cityline_account": "",
         "urbtix_account": "",
         "hkticketing_account": "",
-        "kham_account": "F131623020",
+        "kham_account": "",
         "ticket_account": "",
         "udn_account": "",
-        "ticketplus_account": "0966857158",
+        "ticketplus_account": "",
         "facebook_password": "",
-        "kktix_password": "cyMmKiEjIiok",
+        "kktix_password": "",
         "fami_password": "",
         "urbtix_password": "",
         "cityline_password": "",
         "hkticketing_password": "",
-        "kham_password": "SEtERytzK3sgRTM9OUQh",
+        "kham_password": "",
         "ticket_password": "",
         "udn_password": "",
-        "ticketplus_password": "UyMmKiEjIiokcw==",
+        "ticketplus_password": "",
         "facebook_password_plaintext": "",
         "kktix_password_plaintext": "",
         "fami_password_plaintext": "",
@@ -72,23 +68,23 @@
         "udn_password_plaintext": "",
         "ticketplus_password_plaintext": "",
         "chrome_extension": true,
-        "disable_adjacent_seat": true,
+        "disable_adjacent_seat": false,
         "hide_some_image": false,
         "block_facebook_network": false,
         "headless": false,
         "verbose": false,
         "auto_guess_options": true,
-        "user_guess_string": "\"447757\"",
+        "user_guess_string": "",
         "remote_url": "\"http://127.0.0.1:16888/\"",
-        "auto_reload_page_interval": 0.4,
-        "reset_browser_interval": 30000,
+        "auto_reload_page_interval": 0.0,
+        "reset_browser_interval": 0,
+        "kktix_status_api": false,
+        "max_dwell_time": 60,
         "proxy_server_port": "",
-        "window_size": "480,512",
+        "window_size": "480,1024",
         "idle_keyword": "",
         "resume_keyword": "",
         "idle_keyword_second": "",
-        "resume_keyword_second": "",
-        "auto_reload_overheat_count": 100,
-        "auto_reload_overheat_cd": 0
+        "resume_keyword_second": ""
     }
 }
