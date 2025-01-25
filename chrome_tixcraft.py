@@ -4837,133 +4837,128 @@ def cityline_performance(driver, config_dict):
                             break
 
 def ibon_date_auto_select(driver, config_dict):
-    show_debug_message = True       # debug.
-    show_debug_message = False      # online
-
-    if config_dict["advanced"]["verbose"]:
-        show_debug_message = True
+    from selenium.webdriver.common.by import By
+    import time
+    
+    show_debug_message = config_dict["advanced"]["verbose"]  # 以 config 的 advanced.verbose 來判斷要不要印
 
     auto_select_mode = config_dict["date_auto_select"]["mode"]
     date_keyword = config_dict["date_auto_select"]["date_keyword"].strip()
     auto_reload_coming_soon_page_enable = config_dict["tixcraft"]["auto_reload_coming_soon_page"]
 
     if show_debug_message:
-        print("date_keyword:", date_keyword)
-        print("auto_reload_coming_soon_page_enable:", auto_reload_coming_soon_page_enable)
+        print("[ibon_date_auto_select] date_keyword:", date_keyword)
+        print("[ibon_date_auto_select] auto_reload_coming_soon_page_enable:", auto_reload_coming_soon_page_enable)
 
-    matched_blocks = None
-
-    area_list = None
-    try:
-        my_css_selector = "div.single-content > div > div.row > div > div.tr"
-        area_list = driver.find_elements(By.CSS_SELECTOR, my_css_selector)
-    except Exception as exc:
-        print("find date-time rows fail")
-        print(exc)
-
-    #PS: some blocks are generate by ajax, not appear at first time.
-    formated_area_list = None
-    if not area_list is None:
-        area_list_count = len(area_list)
-        if show_debug_message:
-            print("date_list_count:", area_list_count)
-
-        if area_list_count > 0:
-            formated_area_list = []
-
-            # filter list.
-            for row in area_list:
-                # default is enabled.
-                row_is_enabled=True
-                el_btn = None
-                try:
-                    my_css_selector = "button"
-                    el_btn = row.find_element(By.TAG_NAME, my_css_selector)
-                    if not el_btn is None:
-                        if not el_btn.is_enabled():
-                            #print("row's button disabled!")
-                            row_is_enabled=False
-                except Exception as exc:
-                    if show_debug_message:
-                        print(exc)
-                    pass
-
-                if row_is_enabled:
-                    formated_area_list.append(row)
-
-    if not formated_area_list is None:
-        area_list_count = len(formated_area_list)
-        if show_debug_message:
-            print("formated_area_list count:", area_list_count)
-        if area_list_count > 0:
-            if len(date_keyword) == 0:
-                matched_blocks = formated_area_list
-            else:
-                # match keyword.
-                if show_debug_message:
-                    print("start to match keyword:", date_keyword)
-
-                matched_blocks = util.get_matched_blocks_by_keyword(config_dict, auto_select_mode, date_keyword, formated_area_list)
-
-                if show_debug_message:
-                    if not matched_blocks is None:
-                        print("after match keyword, found count:", len(matched_blocks))
-        else:
-            print("not found date-time-position")
-            pass
-    else:
-        print("date date-time-position is None")
-        pass
-
-    target_area = util.get_target_item_from_matched_list(matched_blocks, auto_select_mode)
     is_date_assign_by_bot = False
-    if not target_area is None:
-        is_button_clicked = False
-        for i in range(3):
-            el_btn = None
-            try:
-                my_css_selector = "button.btn"
-                el_btn = target_area.find_element(By.CSS_SELECTOR, my_css_selector)
-            except Exception as exc:
-                pass
 
-            if not el_btn is None:
-                try:
-                    if el_btn.is_enabled():
-                        el_btn.click()
-                        print("buy icon pressed.")
-                        is_button_clicked = True
-                except Exception as exc:
-                    pass
-                    # use plan B
-                    '''
-                    try:
-                        print("force to click by js.")
-                        driver.execute_script("arguments[0].click();", el_btn)
-                        ret = True
-                    except Exception as exc:
-                        pass
-                    '''
-            if is_button_clicked:
-                break
-        is_date_assign_by_bot = is_button_clicked
+    # 1) 找到 Shadow Root
+    shadow_root = None
+    try:
+        # <div id="divGameInfo"><app-game>...</app-game></div>
+        shadow_host = driver.find_element(By.CSS_SELECTOR, "div#divGameInfo > app-game")
+        shadow_root = shadow_host.shadow_root  # Selenium 4+: 取得 open shadow root
+        if show_debug_message:
+            print("[ibon_date_auto_select] Found shadow_host & shadow_root")
+    except Exception as exc:
+        if show_debug_message:
+            print("[ibon_date_auto_select] find shadow host/app-game fail:", exc)
+        # 如果連 shadow root 都找不到，沒法繼續，只能結束
+        return False
 
-    else:
-        # no target to click.
+    # 2) 從 shadow root 裡面找場次列表 => <div id="GameInfoList"> 下的多個 <div class="tr"> row
+    area_list = []
+    try:
+        area_list = shadow_root.find_elements(By.CSS_SELECTOR, "div#GameInfoList .tr")
+        if show_debug_message:
+            print("[ibon_date_auto_select] raw area_list count:", len(area_list))
+    except Exception as exc:
+        if show_debug_message:
+            print("[ibon_date_auto_select] find date-time rows fail:", exc)
+    
+    if not area_list:
+        # 如果什麼都沒抓到 => 看要不要 refresh
         if auto_reload_coming_soon_page_enable:
-            # auto refresh for date list page.
-            if not formated_area_list is None:
-                if len(formated_area_list) == 0:
-                    try:
-                        driver.refresh()
-                        time.sleep(0.3)
-                    except Exception as exc:
-                        pass
+            try:
+                driver.refresh()
+                time.sleep(0.3)
+                if config_dict["advanced"]["auto_reload_page_interval"] > 0:
+                    time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+            except Exception as ex2:
+                pass
+        return False
 
-                    if config_dict["advanced"]["auto_reload_page_interval"] > 0:
-                        time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+    # 3) 篩選(若 date_keyword 不空 => 依關鍵字比對 row.text)
+    matched_blocks = []
+    for row in area_list:
+        try:
+            row_text = row.text
+        except Exception as e_get_text:
+            if show_debug_message:
+                print("[ibon_date_auto_select] row.text fail => skip row:", e_get_text)
+            continue
 
-    return is_date_assign_by_bot
+        if date_keyword:
+            # 如果設定了日期關鍵字(例如 "2025/02/22" or "週日" etc.)
+            if date_keyword not in row_text:
+                continue
+        # 若無 date_keyword => 全部都接受
+        matched_blocks.append(row)
+
+    # 4) 從 matched_blocks 根據 auto_select_mode 取目標 row
+    target_area = util.get_target_item_from_matched_list(matched_blocks, auto_select_mode)
+    # 若你沒有 util.get_target_item_from_matched_list，也可直接 target_area = matched_blocks[0] 
+
+    if show_debug_message:
+        if target_area:
+            print("[ibon_date_auto_select] got target_area => ready to click the button")
+        else:
+            print("[ibon_date_auto_select] no matched row => might refresh or skip")
+
+    if not target_area:
+        # 未找到符合條件的日期 => 看要不要 refresh
+        if auto_reload_coming_soon_page_enable:
+            try:
+                driver.refresh()
+                time.sleep(0.3)
+                if config_dict["advanced"]["auto_reload_page_interval"] > 0:
+                    time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+            except Exception as ex3:
+                pass
+        return False
+
+    # 5) 取得按鈕 <button class="btn btn-pink btn-buy">線上購票</button>，並嘗試點擊
+    #    (有時按鈕 class 會改，或 button text 可能是「線上購票」，可依實際情況調整)
+    is_button_clicked = False
+    try:
+        buy_button = target_area.find_element(By.CSS_SELECTOR, "button.btn.btn-pink.btn-buy")
+        # 也可以: buy_button = target_area.find_element(By.XPATH, ".//button[contains(text(),'線上購票')]")
+        
+        if buy_button.is_enabled():
+            # 先捲動到按鈕可見範圍
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", buy_button)
+            time.sleep(0.1)  # 避免滾動後馬上click出錯
+
+            buy_button.click()
+            if show_debug_message:
+                print("[ibon_date_auto_select] buy button pressed.")
+            is_button_clicked = True
+        else:
+            if show_debug_message:
+                print("[ibon_date_auto_select] buy_button is not enabled => skip click")
+    except Exception as exc_button:
+        if show_debug_message:
+            print("[ibon_date_auto_select] find/click buy button fail => try JS click:", exc_button)
+        # plan B: JS click
+        try:
+            driver.execute_script("arguments[0].click();", buy_button)
+            is_button_clicked = True
+        except Exception as exc_js:
+            if show_debug_message:
+                print("[ibon_date_auto_select] JS click also fail:", exc_js)
+
+    # 6) 回傳是否成功點擊
+    return is_button_clicked
 
 def ibon_area_auto_select(driver, config_dict, area_keyword_item):
     """
@@ -4973,9 +4968,9 @@ def ibon_area_auto_select(driver, config_dict, area_keyword_item):
       3. 關鍵字過濾後，嘗試點擊符合的區域 <tr>.
       4. 回傳 is_need_refresh (是否需要頁面重整) 及 is_price_assign_by_bot (是否成功點擊).
     """
-    from selenium.webdriver.common.by import By
-
+    
     show_debug_message = config_dict["advanced"]["verbose"]
+    
 
     auto_select_mode = config_dict["area_auto_select"]["mode"]
     ticket_number = config_dict["ticket_number"]
@@ -5166,53 +5161,58 @@ def ibon_allow_not_adjacent_seat(driver, config_dict):
     return is_finish_checkbox_click
 
 def ibon_performance(driver, config_dict):
-    show_debug_message = True       # debug.
-    show_debug_message = False      # online
-
-    if config_dict["advanced"]["verbose"]:
-        show_debug_message = True
+    
+    show_debug_message = config_dict["advanced"]["verbose"]
 
     is_price_assign_by_bot = False
     is_need_refresh = False
 
-    # click price row.
+    # 讀取並處理 area 關鍵字
     area_keyword = config_dict["area_auto_select"]["area_keyword"].strip()
-
     if show_debug_message:
-        print("area_keyword:", area_keyword)
+        print("[ibon_performance] area_keyword:", area_keyword)
 
-    is_need_refresh = False
-
+    # 若 area_keyword 是 JSON 格式可拆分(如 ["搖滾A","搖滾B"])
     if len(area_keyword) > 0:
         area_keyword_array = []
         try:
-            area_keyword_array = json.loads("["+ area_keyword +"]")
+            area_keyword_array = json.loads("[" + area_keyword + "]")
         except Exception as exc:
+            if show_debug_message:
+                print("[ibon_performance] parse area_keyword fail:", exc)
             area_keyword_array = []
 
         for area_keyword_item in area_keyword_array:
             is_need_refresh, is_price_assign_by_bot = ibon_area_auto_select(driver, config_dict, area_keyword_item)
             if not is_need_refresh:
+                # 若已成功找到並點擊區域，就不再嘗試後續關鍵字
                 break
             else:
-                print("is_need_refresh for keyword:", area_keyword_item)
+                if show_debug_message:
+                    print("[ibon_performance] is_need_refresh for keyword:", area_keyword_item)
     else:
-        # empty keyword, match all.
-        is_need_refresh, is_price_assign_by_bot = ibon_area_auto_select(driver, config_dict, area_keyword)
+        # 若 area_keyword 為空 => 不做任何關鍵字過濾
+        is_need_refresh, is_price_assign_by_bot = ibon_area_auto_select(driver, config_dict, "")
 
     if show_debug_message:
-        print("is_need_refresh:", is_need_refresh)
+        print("[ibon_performance] is_need_refresh:", is_need_refresh)
 
+    # 若需要刷新
     if is_need_refresh:
         try:
+            if show_debug_message:
+                print("[ibon_performance] refresh because is_need_refresh=True")
             driver.refresh()
         except Exception as exc:
-            pass
+            if show_debug_message:
+                print("[ibon_performance] refresh fail:", exc)
 
-        if config_dict["advanced"]["auto_reload_page_interval"] > 0:
-            time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+        reload_interval = config_dict["advanced"].get("auto_reload_page_interval", 0)
+        if reload_interval > 0:
+            time.sleep(reload_interval)
 
     return is_price_assign_by_bot
+
 
 def ibon_purchase_button_press(driver):
     is_button_clicked = press_button(driver, By.CSS_SELECTOR, '#ticket-wrap > a.btn')

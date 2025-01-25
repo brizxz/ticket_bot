@@ -1,1 +1,1 @@
-https://huiwan.ibon.com.tw/huiwan/LoginHuiwan/UserLogin.aspx?taxid=292129431&targeturl=https://orders.ibon.com.tw//chkmembers.aspx
+https://orders.ibon.com.tw/application/UTK02/UTK0206_.aspx
