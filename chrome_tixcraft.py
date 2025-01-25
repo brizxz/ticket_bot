@@ -4966,199 +4966,183 @@ def ibon_date_auto_select(driver, config_dict):
     return is_date_assign_by_bot
 
 def ibon_area_auto_select(driver, config_dict, area_keyword_item):
-    show_debug_message = True       # debug.
-    show_debug_message = False      # online
+    """
+    改良後版本：
+      1. 正確存取 Shadow DOM.
+      2. 單一路徑過濾區域（已售完 / disabled / 座位不足）。
+      3. 關鍵字過濾後，嘗試點擊符合的區域 <tr>.
+      4. 回傳 is_need_refresh (是否需要頁面重整) 及 is_price_assign_by_bot (是否成功點擊).
+    """
+    from selenium.webdriver.common.by import By
 
-    if config_dict["advanced"]["verbose"]:
-        show_debug_message = True
+    show_debug_message = config_dict["advanced"]["verbose"]
 
     auto_select_mode = config_dict["area_auto_select"]["mode"]
+    ticket_number = config_dict["ticket_number"]
 
-    # when avaiable seat under this count, check seat text content.
+    # 這可根據網站實際表達「售完」的字詞再做補充
+    sold_out_keywords = ["已售完", "sold-out", "disabled", "售完"]
+
+    # 超過此數目才略過詳細檢查座位(若程式效能考量)
     CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT = 20
 
     is_price_assign_by_bot = False
     is_need_refresh = False
 
-    area_list = None
+    # 1) 取出 shadow_root 與其內的 <tr>
+    area_list = []
     try:
-        #print("try to find cityline area block")
-        #my_css_selector = "div.col-md-5 > table > tbody > tr[onclick=\"onTicketArea(this.id)\"]"
-        my_css_selector = "div.col-md-5 > table > tbody > tr:not(.disabled)"
-        area_list = driver.find_elements(By.CSS_SELECTOR, my_css_selector)
+        shadow_host = driver.find_element(By.CSS_SELECTOR, "div.col-md-5#AreaTable > div")
+        shadow_root = shadow_host.shadow_root  # Selenium 4+ 支援 shadow_root
+        my_css_selector = "table.table.table-sm > tbody > tr:not(.disabled)"
+        area_list = shadow_root.find_elements(By.CSS_SELECTOR, my_css_selector)
     except Exception as exc:
-        print("find #ticket-price-tbl date list fail")
-        print(exc)
-
-    formated_area_list = None
-    if not area_list is None:
-        area_list_count = len(area_list)
         if show_debug_message:
-            print("area_list_count:", area_list_count)
-            print("area_keyword_item:", area_keyword_item)
+            print("find #AreaTable shadow DOM fail:", exc)
 
-        if area_list_count > 0:
-            formated_area_list = []
-            # filter list.
-            for row in area_list:
-                row_text = ""
-                row_html = ""
+    if show_debug_message:
+        print(f"[ibon_area_auto_select] area_keyword_item = '{area_keyword_item}'")
+        print("[ibon_area_auto_select] area_list count:", len(area_list))
+
+    formated_area_list = []
+    if area_list:
+        area_list_count = len(area_list)
+
+        for row in area_list:
+            # 先初步過濾 row_html
+            try:
+                row_html = row.get_attribute('innerHTML') or ""
+            except Exception as exc:
+                if show_debug_message:
+                    print("[ibon_area_auto_select] get row innerHTML fail:", exc)
+                continue
+
+            # 透過 util 去掉 <tag> 只留文字
+            row_text = util.remove_html_tags(row_html).strip()
+            if not row_text:
+                continue
+
+            # 過濾一些「已售完」「sold-out」「disabled」等關鍵詞
+            skip_this = False
+            for kw in sold_out_keywords:
+                if kw in row_text or kw in row_html:
+                    skip_this = True
+                    break
+            if skip_this:
+                continue
+
+            # 通用排除，若你的程式在 config 裡有「stop word」也可呼叫
+            if util.reset_row_text_if_match_keyword_exclude(config_dict, row_text):
+                continue
+
+            # 若要檢查「剩餘座位數是否足夠」
+            is_seat_remaining_checking = False
+            if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
+                # 從上到下只檢查第一個要append的row
+                if not formated_area_list:  # 目前列表為空才檢查
+                    is_seat_remaining_checking = True
+            if area_list_count <= CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT:
+                is_seat_remaining_checking = True
+
+            if is_seat_remaining_checking and ticket_number > 0:
+                # 嘗試找 <td class="action"><span>數字</span></td>，查看座位數
                 try:
-                    #row_text = row.text
-                    row_html = row.get_attribute('innerHTML')
-                    row_text = util.remove_html_tags(row_html)
+                    seat_el = row.find_element(By.CSS_SELECTOR, "td.action span")
+                    seat_text = seat_el.text.strip() if seat_el else ""
+                    if seat_text.isdigit():
+                        # 若是數字，判斷是否 >= ticket_number
+                        if int(seat_text) < ticket_number:
+                            if show_debug_message:
+                                print("[ibon_area_auto_select] skip row (not enough seats):", row_text)
+                            continue
+                    else:
+                        # 可能出現「熱賣中」等文字，不是數字就不判斷
+                        if show_debug_message:
+                            print("[ibon_area_auto_select] seat_text is not digit:", seat_text)
                 except Exception as exc:
                     if show_debug_message:
-                        print(exc)
-                    # error, exit loop
-                    break
+                        print("[ibon_area_auto_select] seat checking fail:", exc)
 
-                if len(row_text) > 0:
-                    if '已售完' in row_text:
-                        row_text = ""
+            # 通過前述條件，先放進 formated_area_list
+            formated_area_list.append(row)
 
-                    if 'disabled' in row_html:
-                        row_text = ""
-
-                    if 'sold-out' in row_html:
-                        row_text = ""
-
-                # clean the buttom description row.
-                if len(row_text) > 0:
-                    if row_text == "座位已被選擇":
-                        row_text=""
-                    if row_text == "座位已售出":
-                        row_text=""
-                    if row_text == "舞台區域":
-                        row_text=""
-
-                if len(row_text) > 0:
-                    if util.reset_row_text_if_match_keyword_exclude(config_dict, row_text):
-                        row_text = ""
-
-                # check ticket count when amount is few, because of it spent a lot of time at parsing element.
-                if len(row_text) > 0:
-                    is_seat_remaining_checking = False
-                    # PS: when user query with keyword, but when selected row is too many, not every row to check remaing.
-                    #     may cause the matched keyword row ticket seat under user target ticket number.
-                    if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
-                        if len(formated_area_list)==0:
-                            is_seat_remaining_checking = True
-
-                    if area_list_count <= CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT:
-                        is_seat_remaining_checking = True
-
-                    if is_seat_remaining_checking:
-                        try:
-                            area_seat_el = row.find_element(By.CSS_SELECTOR, 'td.action')
-                            if not area_seat_el is None:
-                                seat_text = area_seat_el.text
-                                if seat_text is None:
-                                    seat_text = ""
-                                if seat_text.isdigit():
-                                    seat_int = int(seat_text)
-                                    if seat_int < config_dict["ticket_number"]:
-                                        # skip this row.
-                                        if show_debug_message:
-                                            print("skip not enought ticket number area at row_text:", row_text)
-                                        row_text = ""
-                        except Exception as exc:
-                            if show_debug_message:
-                                print(exc)
-                            pass
-
-                if len(row_text) > 0:
-                    formated_area_list.append(row)
-        else:
-            if show_debug_message:
-                print("area_list_count is empty.")
-            pass
-    else:
         if show_debug_message:
-            print("area_list_count is None.")
-        pass
+            print("[ibon_area_auto_select] formated_area_list count:", len(formated_area_list))
 
-    if is_price_assign_by_bot:
-        formated_area_list = None
+    # 若最終 formated_area_list 仍為空 => 需要刷新
+    if not formated_area_list:
+        is_need_refresh = True
+        if show_debug_message:
+            print("[ibon_area_auto_select] formated_area_list is empty => refresh needed.")
 
+    # 進一步針對 area_keyword_item 做關鍵字匹配
     matched_blocks = []
-    if not formated_area_list is None:
-        area_list_count = len(formated_area_list)
-        if show_debug_message:
-            print("formated_area_list count:", area_list_count)
+    if formated_area_list:
+        # 若沒有輸入關鍵字 => 直接視為 matched_blocks
+        if not area_keyword_item.strip():
+            matched_blocks = formated_area_list
+        else:
+            area_keyword_array = [kw for kw in area_keyword_item.split() if kw.strip()]
+            for row in formated_area_list:
+                try:
+                    row_html = row.get_attribute('innerHTML') or ""
+                    row_text = util.remove_html_tags(row_html)
+                    row_text = util.format_keyword_string(row_text)
+                except Exception as exc:
+                    if show_debug_message:
+                        print("[ibon_area_auto_select] read row_text fail:", exc)
+                    continue
 
-        if area_list_count > 0:
-            if len(area_keyword_item) == 0:
-                matched_blocks = formated_area_list
-            else:
-                for row in formated_area_list:
-                    row_text = ""
-                    row_html = ""
-                    try:
-                        #row_text = row.text
-                        row_html = row.get_attribute('innerHTML')
-                        row_text = util.remove_html_tags(row_html)
-                    except Exception as exc:
-                        if show_debug_message:
-                            print(exc)
-                        # error, exit loop
+                is_match = True
+                for kw in area_keyword_array:
+                    kw_formatted = util.format_keyword_string(kw)
+                    if kw_formatted not in row_text:
+                        is_match = False
                         break
 
-                    if len(row_text) > 0:
-                        row_text = util.format_keyword_string(row_text)
-                        if show_debug_message:
-                            print("row_text:", row_text)
+                if is_match:
+                    matched_blocks.append(row)
+                    # 若從上往下選，只要第一個就好
+                    if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
+                        break
 
-                        is_match_area = False
+        if show_debug_message:
+            print("[ibon_area_auto_select] matched_blocks count:", len(matched_blocks))
 
-                        if len(area_keyword_item) > 0:
-                            # must match keyword.
-                            is_match_area = True
-                            area_keyword_array = area_keyword_item.split(' ')
-                            for area_keyword in area_keyword_array:
-                                area_keyword = util.format_keyword_string(area_keyword)
-                                if not area_keyword in row_text:
-                                    is_match_area = False
-                                    break
-                        else:
-                            # without keyword.
-                            is_match_area = True
+    # 取最終要點擊的 row
+    target_area = None
+    if matched_blocks:
+        # 如果你已有 util.get_target_item_from_matched_list，可以沿用
+        target_area = util.get_target_item_from_matched_list(matched_blocks, auto_select_mode)
+    else:
+        # 若無匹配 => 不做任何點擊
+        print("[ibon_area_auto_select] no matched_blocks => no click.")
+        pass
 
-                        if is_match_area:
-                            matched_blocks.append(row)
-
-                            if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
-                                break
-
-
-            if show_debug_message:
-                print("after match keyword, found count:", len(matched_blocks))
-
-    target_area = util.get_target_item_from_matched_list(matched_blocks, auto_select_mode)
-
-    if not matched_blocks is None:
-        if len(matched_blocks) == 0:
-            is_need_refresh = True
-            if show_debug_message:
-                print("matched_blocks is empty, is_need_refresh")
-
-    if not target_area is None:
+    # 執行點擊
+    if target_area:
         try:
+            # 有些時候需要先滾動到可見範圍
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_area)
+
             if target_area.is_enabled():
                 target_area.click()
                 is_price_assign_by_bot = True
         except Exception as exc:
-            print("click target_area link fail")
-            print(exc)
-            # use plan B
+            if show_debug_message:
+                print("[ibon_area_auto_select] click target_area fail => try JS click:", exc)
+            # Plan B: JS點擊
             try:
-                print("force to click by js.")
                 driver.execute_script("arguments[0].click();", target_area)
                 is_price_assign_by_bot = True
-            except Exception as exc:
-                pass
-
+            except Exception as exc2:
+                if show_debug_message:
+                    print("[ibon_area_auto_select] force JS click also fail:", exc2)
+    else:
+        print("[ibon_area_auto_select] no target to click.")
+    
     return is_need_refresh, is_price_assign_by_bot
+
 
 def ibon_allow_not_adjacent_seat(driver, config_dict):
     show_debug_message = True       # debug.
@@ -7006,8 +6990,8 @@ def ibon_keyin_captcha_code(driver, answer = "", auto_submit = False):
     return is_verifyCode_editing
 
 def ibon_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_answer, Captcha_Browser, ocr_captcha_image_source, model_name):
-    show_debug_message = True       # debug.
-    show_debug_message = False      # online
+    show_debug_message = True       # debug for demonstration
+    #show_debug_message = False     # online
 
     if config_dict["advanced"]["verbose"]:
         show_debug_message = True
@@ -7016,100 +7000,147 @@ def ibon_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
 
     is_need_redo_ocr = False
     is_form_sumbited = False
-
     ocr_answer = None
-    if not ocr is None:
-        if show_debug_message:
-            print("away_from_keyboard_enable:", away_from_keyboard_enable)
-            print("previous_answer:", previous_answer)
-            print("ocr_captcha_image_source:", ocr_captcha_image_source)
 
-        ocr_start_time = time.time()
-
-        img_base64 = None
-        if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
-            if not Captcha_Browser is None:
-                img_base64 = base64.b64decode(Captcha_Browser.Request_Captcha())
-        if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
-            image_id = 'chk_pic'
-            image_element = None
-            try:
-                my_css_selector = "#" + image_id
-                image_element = driver.find_elements(By.CSS_SELECTOR, my_css_selector)
-            except Exception as exc:
-                pass
-
-            if not image_element is None:
-                try:
-                    driver.set_script_timeout(1)
-                    form_verifyCode_base64 = driver.execute_async_script("""
-                        var canvas = document.createElement('canvas');
-                        var context = canvas.getContext('2d');
-                        var img = document.getElementById('%s');
-                        if(img!=null) {
-                        canvas.height = img.naturalHeight;
-                        canvas.width = img.naturalWidth;
-                        context.drawImage(img, 0, 0);
-                        callback = arguments[arguments.length - 1];
-                        callback(canvas.toDataURL()); }
-                        """ % (image_id))
-                    if not form_verifyCode_base64 is None:
-                        img_base64 = base64.b64decode(form_verifyCode_base64.split(',')[1])
-                except Exception as exc:
-                    if show_debug_message:
-                        print("canvas exception:", str(exc))
-                    pass
-        if not img_base64 is None:
-            try:
-                ocr_answer = ocr.classification(img_base64)
-            except Exception as exc:
-                pass
-
-        ocr_done_time = time.time()
-        ocr_elapsed_time = ocr_done_time - ocr_start_time
-        print("ocr elapsed time:", "{:.3f}".format(ocr_elapsed_time))
-    else:
+    if ocr is None:
         print("ddddocr is None")
+        return is_need_redo_ocr, previous_answer, is_form_sumbited
 
-    if not ocr_answer is None:
+    # 方便看紀錄
+    if show_debug_message:
+        print("away_from_keyboard_enable:", away_from_keyboard_enable)
+        print("previous_answer:", previous_answer)
+        print("ocr_captcha_image_source:", ocr_captcha_image_source)
+
+    ocr_start_time = time.time()
+    img_base64 = None
+
+    # 只有在指定 CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER 或 CANVAS 才繼續
+    if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_NON_BROWSER:
+        # 你原本的流程：透過 Captcha_Browser 拿圖片
+        if Captcha_Browser is not None:
+            img_base64 = base64.b64decode(Captcha_Browser.request_captcha())
+
+    elif ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
+        """
+        目標結構：
+        <div class="editor-box text-center" style="...">
+            <div>
+                <span>
+                    #shadow-root (open)
+                        <img src="/pic.aspx?TYPE=UTK0202..." ...>
+                </span>
+            </div>
+        </div>
+        """
+        # 透過 Selenium 4 的 .shadow_root 可直接取 <img>；不過你後面還用 JS+canvas，
+        # 需在 script 裡面進入 shadow DOM 查詢 <img>。
+        # 這裡示範 JavaScript async script 方式，直接在瀏覽器端將 <img> 畫到 <canvas>，
+        # 再回傳 base64。
+        try:
+            driver.set_script_timeout(5)
+
+            # Shadow Host 的 CSS 選擇器
+            shadow_host_selector = "div.editor-box.text-center > div > span"
+
+            # 執行 async script，進入 shadow DOM 拿 <img>，畫到 canvas，回傳 base64
+            form_verifyCode_base64 = driver.execute_async_script(f"""
+                var callback = arguments[arguments.length - 1];
+                var shadowHost = document.querySelector('{shadow_host_selector}');
+                if (!shadowHost || !shadowHost.shadowRoot) {{
+                    // shadow root 還沒準備好，或不存在
+                    return callback(null);
+                }}
+                var img = shadowHost.shadowRoot.querySelector('img');
+                if (!img) {{
+                    return callback(null);
+                }}
+
+                // 建立 canvas，畫出圖像
+                var canvas = document.createElement('canvas');
+                var context = canvas.getContext('2d');
+                // naturalWidth/Height 確保抓到原始大小
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                context.drawImage(img, 0, 0);
+                callback(canvas.toDataURL());  // 回傳 base64
+            """)
+
+            if form_verifyCode_base64:
+                # data:image/png;base64,iVBORw0K...
+                # 取出 "iVBORw0K..." 之後再 decode
+                base64_part = form_verifyCode_base64.split(',')[1]
+                img_base64 = base64.b64decode(base64_part)
+            else:
+                print("未能获取到验证码的Base64数据 (form_verifyCode_base64 is None)")
+
+        except Exception as exc:
+            print("执行JavaScript获取验证码图片时发生异常：", str(exc))
+    else:
+        # 其他模式，不處理
+        pass
+
+    #print("img_base64 is ", img_base64)
+
+    if img_base64:
+        try:
+            ocr_answer = ocr.classification(img_base64)
+        except Exception as exc:
+            print("OCR 執行時發生例外:", exc)
+
+    ocr_done_time = time.time()
+    ocr_elapsed_time = ocr_done_time - ocr_start_time
+    print("ocr_answer is ", ocr_answer)
+    print("ocr elapsed time:", "{:.3f}".format(ocr_elapsed_time))
+
+    # 開始後續判斷
+    if ocr_answer:
         ocr_answer = ocr_answer.strip()
         print("ocr_answer:", ocr_answer)
-        if len(ocr_answer)==4:
-            who_care_var = ibon_keyin_captcha_code(driver, answer = ocr_answer, auto_submit = away_from_keyboard_enable)
+        # 如果剛好長度=4，假設通過
+        if len(ocr_answer) == 4:
+            # 將 4 碼答案填入
+            who_care_var = ibon_keyin_captcha_code(
+                driver,
+                answer=ocr_answer,
+                auto_submit=away_from_keyboard_enable
+            )
         else:
+            # 長度不符合，可能要再刷新驗證碼
             if not away_from_keyboard_enable:
+                # 若非自動模式，直接人工填
                 ibon_keyin_captcha_code(driver)
             else:
+                # 重新抓圖再 OCR
                 is_need_redo_ocr = True
                 if previous_answer != ocr_answer:
                     previous_answer = ocr_answer
                     print("click captcha again")
                     if True:
-                        # selenium solution.
-                        jquery_string = '$("#chk_pic").attr("src", "/pic.aspx?TYPE=%s&ts=" + new Date().getTime());' % (model_name)
+                        # selenium solution: 重新載入驗證碼
+                        jquery_string = f'$("#chk_pic").attr("src", "/pic.aspx?TYPE={model_name}&ts=" + new Date().getTime());'
                         driver.execute_script(jquery_string)
-
                         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
                             time.sleep(0.3)
                     else:
-                        # Non_Browser solution.
-                        if not Captcha_Browser is None:
-                            new_captcha_url = Captcha_Browser.Request_Refresh_Captcha() #取得新的CAPTCHA
+                        # Non-Browser solution.
+                        if Captcha_Browser is not None:
+                            new_captcha_url = Captcha_Browser.request_refresh_captcha()
                             if new_captcha_url != "":
-                                #PS:[TODO]
-                                #tixcraft_change_captcha(driver, new_captcha_url) #更改CAPTCHA圖
-                                pass
+                                pass  # [TODO]: 你可在此更新圖片
     else:
+        # 無法 OCR 出答案
         print("ocr_answer is None")
         print("previous_answer:", previous_answer)
         if previous_answer is None:
+            # 第一次失敗，可能要人工輸入
             ibon_keyin_captcha_code(driver)
         else:
             # page is not ready, retry again.
-            # PS: usually occur in async script get captcha image.
             is_need_redo_ocr = True
 
     return is_need_redo_ocr, previous_answer, is_form_sumbited
+
 
 def ibon_captcha(driver, config_dict, ocr, Captcha_Browser, model_name):
     away_from_keyboard_enable = config_dict["ocr_captcha"]["force_submit"]
@@ -7269,7 +7300,7 @@ def ibon_main(driver, url, config_dict, ocr, Captcha_Browser):
                         captcha_url = '/pic.aspx?TYPE=%s' % (model_name)
                         #PS: need set cookies once, if user change domain.
                         if not Captcha_Browser is None:
-                            Captcha_Browser.set_domain(domain_name, captcha_url=captcha_url)
+                            Captcha_Browser.Set_Domain(domain_name, captcha_url=captcha_url)
 
                         is_captcha_sent = ibon_captcha(driver, config_dict, ocr, Captcha_Browser, model_name)
 
@@ -10873,7 +10904,7 @@ def reset_webdriver(driver, config_dict, url):
         config_dict["homepage"]=url
         new_driver = get_driver_by_config(config_dict)
         for cookie in cookies:
-            new_driver.add_cookie(cookie);
+            new_driver.add_cookie(cookie)
         new_driver.get(url)
         driver = new_driver
     except Exception as e:
