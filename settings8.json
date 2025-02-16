@@ -1,5 +1,5 @@
 {
-    "homepage": "https://ticket.ibon.com.tw/",
+    "homepage": "https://kktix.com",
     "browser": "chrome",
     "language": "\u7e41\u9ad4\u4e2d\u6587",
     "ticket_number": 2,
@@ -9,16 +9,16 @@
         "force_submit": true,
         "image_source": "canvas"
     },
-    "webdriver_type": "selenium",
+    "webdriver_type": "undetected_chromedriver",
     "date_auto_select": {
         "enable": true,
-        "date_keyword": "",
+        "date_keyword": "\"3/23\"",
         "mode": "random"
     },
     "area_auto_select": {
         "enable": true,
         "mode": "random",
-        "area_keyword": "\"B\""
+        "area_keyword": "\"800\""
     },
     "keyword_exclude": "\"\u8f2a\u6905\",\"\u8eab\u969c\",\"\u8eab\u5fc3 \u969c\u7919\",\"Restricted View\",\"\u71c8\u67f1\u906e\u853d\",\"\u8996\u7dda\u4e0d\u5b8c\u6574\",\"\u7ad9\u7acb\"",
     "kktix": {
@@ -35,10 +35,10 @@
             "order": true,
             "filename": "ding-dong.wav"
         },
-        "tixcraft_sid": "m53c7fc2cq3hdul70or36bp3pc",
+        "tixcraft_sid": "brq82j2ipos3i1kdo2giejsjfh",
         "ibonqware": "",
         "facebook_account": "",
-        "kktix_account": "yussp0006@gmail.com",
+        "kktix_account": "yussp0009@gmail.com",
         "fami_account": "",
         "cityline_account": "",
         "urbtix_account": "",
@@ -76,7 +76,7 @@
         "auto_guess_options": false,
         "user_guess_string": "\"447757\"",
         "remote_url": "\"http://127.0.0.1:16888/\"",
-        "auto_reload_page_interval": 1.0,
+        "auto_reload_page_interval": 0.4,
         "reset_browser_interval": 10000,
         "kktix_status_api": false,
         "max_dwell_time": 10000,

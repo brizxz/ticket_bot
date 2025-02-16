@@ -4881,9 +4881,9 @@ def ibon_date_auto_select(driver, config_dict):
         if auto_reload_coming_soon_page_enable:
             try:
                 driver.refresh()
-                time.sleep(0.3)
+                time.sleep(0.2)
                 if config_dict["advanced"]["auto_reload_page_interval"] > 0:
-                    time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+                    time.sleep(0.6)
             except Exception as ex2:
                 pass
         return False
@@ -4920,9 +4920,9 @@ def ibon_date_auto_select(driver, config_dict):
         if auto_reload_coming_soon_page_enable:
             try:
                 driver.refresh()
-                time.sleep(0.3)
+                time.sleep(0.2)
                 if config_dict["advanced"]["auto_reload_page_interval"] > 0:
-                    time.sleep(config_dict["advanced"]["auto_reload_page_interval"])
+                    time.sleep(0.2)
             except Exception as ex3:
                 pass
         return False
