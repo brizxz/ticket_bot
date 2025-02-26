@@ -4883,7 +4883,7 @@ def ibon_date_auto_select(driver, config_dict):
                 driver.refresh()
                 time.sleep(0.2)
                 if config_dict["advanced"]["auto_reload_page_interval"] > 0:
-                    time.sleep(0.6)
+                    time.sleep(0.3)
             except Exception as ex2:
                 pass
         return False
@@ -7152,7 +7152,7 @@ def ibon_auto_ocr(driver, config_dict, ocr, away_from_keyboard_enable, previous_
                         jquery_string = f'$("#chk_pic").attr("src", "/pic.aspx?TYPE={model_name}&ts=" + new Date().getTime());'
                         driver.execute_script(jquery_string)
                         if ocr_captcha_image_source == CONST_OCR_CAPTCH_IMAGE_SOURCE_CANVAS:
-                            time.sleep(0.3)
+                            time.sleep(0.4)
                     else:
                         # Non-Browser solution.
                         if Captcha_Browser is not None:
