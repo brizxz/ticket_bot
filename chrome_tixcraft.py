@@ -4960,129 +4960,128 @@ def ibon_date_auto_select(driver, config_dict):
     # 6) 回傳是否成功點擊
     return is_button_clicked
 
+import random
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import StaleElementReferenceException
+
 def ibon_area_auto_select(driver, config_dict, area_keyword_item):
     """
     改良後版本：
-      1. 正確存取 Shadow DOM.
-      2. 單一路徑過濾區域（已售完 / disabled / 座位不足）。
-      3. 關鍵字過濾後，嘗試點擊符合的區域 <tr>.
-      4. 回傳 is_need_refresh (是否需要頁面重整) 及 is_price_assign_by_bot (是否成功點擊).
+      1. 正確存取 Shadow DOM（採用 JS 取得 shadowRoot）。
+      2. 不直接保存 WebElement，而是記錄索引與文字，等到點擊時再重新取得。
+      3. 過濾已售完/disabled/座位不足的區域，並依關鍵字匹配後選取要點擊的項目。
+      4. 依據選取模式（top_to_bottom、bottom_to_top、random）選擇目標區域。
+      5. 回傳 is_need_refresh (是否需要頁面重整) 及 is_price_assign_by_bot (是否成功點擊)。
     """
     
     show_debug_message = config_dict["advanced"]["verbose"]
-    
+    # show_debug_message = True
 
     auto_select_mode = config_dict["area_auto_select"]["mode"]
     ticket_number = config_dict["ticket_number"]
 
-    # 這可根據網站實際表達「售完」的字詞再做補充
+    # 定義售完等關鍵字
     sold_out_keywords = ["已售完", "sold-out", "disabled", "售完"]
-
     # 超過此數目才略過詳細檢查座位(若程式效能考量)
     CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT = 20
-
+    # 預設 top_to_bottom 的常數
+    CONST_FROM_TOP_TO_BOTTOM = "top_to_bottom"
+    
     is_price_assign_by_bot = False
     is_need_refresh = False
 
-    # 1) 取出 shadow_root 與其內的 <tr>
-    area_list = []
-    try:
-        shadow_host = driver.find_element(By.CSS_SELECTOR, "div.col-md-5#AreaTable > div")
-        shadow_root = shadow_host.shadow_root  # Selenium 4+ 支援 shadow_root
-        my_css_selector = "table.table.table-sm > tbody > tr:not(.disabled)"
-        area_list = shadow_root.find_elements(By.CSS_SELECTOR, my_css_selector)
-    except Exception as exc:
-        if show_debug_message:
-            print("find #AreaTable shadow DOM fail:", exc)
+    # 用來重新取得 shadow root 下所有符合條件的 <tr> 的函式
+    def fetch_shadow_rows():
+        try:
+            shadow_host = driver.find_element(By.CSS_SELECTOR, "div.col-md-5#AreaTable > div")
+            # 利用 JS 取得最新的 shadowRoot
+            shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
+            rows = shadow_root.find_elements(By.CSS_SELECTOR, "table.table.table-sm > tbody > tr:not(.disabled)")
+            return rows
+        except Exception as exc:
+            if show_debug_message:
+                print("find #AreaTable shadow DOM fail:", exc)
+            return []
 
+    # 取得最新的所有列（不要直接保存 WebElement，後面會再用索引重新讀取）
+    rows = fetch_shadow_rows()
     if show_debug_message:
         print(f"[ibon_area_auto_select] area_keyword_item = '{area_keyword_item}'")
-        print("[ibon_area_auto_select] area_list count:", len(area_list))
-
+        print("[ibon_area_auto_select] rows count:", len(rows))
+    
+    # 針對每一列進行檢查，將符合條件的列存成 tuple：(索引, row_text)
     formated_area_list = []
-    if area_list:
-        area_list_count = len(area_list)
+    for i, row in enumerate(rows):
+        try:
+            row_html = row.get_attribute('innerHTML') or ""
+        except Exception as exc:
+            if show_debug_message:
+                print("[ibon_area_auto_select] get row innerHTML fail:", exc)
+            continue
 
-        for row in area_list:
-            # 先初步過濾 row_html
+        # 利用 util 去除 HTML 標籤，只保留文字
+        row_text = util.remove_html_tags(row_html).strip()
+        if not row_text:
+            continue
+
+        # 過濾包含售完等關鍵字的區域
+        skip_this = False
+        for kw in sold_out_keywords:
+            if kw in row_text or kw in row_html:
+                skip_this = True
+                break
+        if skip_this:
+            continue
+
+        # 若有通用排除規則，也先過濾
+        if util.reset_row_text_if_match_keyword_exclude(config_dict, row_text):
+            continue
+
+        # 檢查剩餘座位是否足夠
+        is_seat_remaining_checking = False
+        if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM and not formated_area_list:
+            is_seat_remaining_checking = True
+        if len(rows) <= CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT:
+            is_seat_remaining_checking = True
+
+        if is_seat_remaining_checking and ticket_number > 0:
             try:
-                row_html = row.get_attribute('innerHTML') or ""
+                seat_el = row.find_element(By.CSS_SELECTOR, "td.action span")
+                seat_text = seat_el.text.strip() if seat_el else ""
+                if seat_text.isdigit():
+                    if int(seat_text) < ticket_number:
+                        if show_debug_message:
+                            print("[ibon_area_auto_select] skip row (not enough seats):", row_text)
+                        continue
+                else:
+                    if show_debug_message:
+                        print("[ibon_area_auto_select] seat_text is not digit:", seat_text)
             except Exception as exc:
                 if show_debug_message:
-                    print("[ibon_area_auto_select] get row innerHTML fail:", exc)
-                continue
+                    print("[ibon_area_auto_select] seat checking fail:", exc)
 
-            # 透過 util 去掉 <tag> 只留文字
-            row_text = util.remove_html_tags(row_html).strip()
-            if not row_text:
-                continue
-
-            # 過濾一些「已售完」「sold-out」「disabled」等關鍵詞
-            skip_this = False
-            for kw in sold_out_keywords:
-                if kw in row_text or kw in row_html:
-                    skip_this = True
-                    break
-            if skip_this:
-                continue
-
-            # 通用排除，若你的程式在 config 裡有「stop word」也可呼叫
-            if util.reset_row_text_if_match_keyword_exclude(config_dict, row_text):
-                continue
-
-            # 若要檢查「剩餘座位數是否足夠」
-            is_seat_remaining_checking = False
-            if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
-                # 從上到下只檢查第一個要append的row
-                if not formated_area_list:  # 目前列表為空才檢查
-                    is_seat_remaining_checking = True
-            if area_list_count <= CONST_DETECT_SEAT_ATTRIBUTE_UNDER_ROW_COUNT:
-                is_seat_remaining_checking = True
-
-            if is_seat_remaining_checking and ticket_number > 0:
-                # 嘗試找 <td class="action"><span>數字</span></td>，查看座位數
-                try:
-                    seat_el = row.find_element(By.CSS_SELECTOR, "td.action span")
-                    seat_text = seat_el.text.strip() if seat_el else ""
-                    if seat_text.isdigit():
-                        # 若是數字，判斷是否 >= ticket_number
-                        if int(seat_text) < ticket_number:
-                            if show_debug_message:
-                                print("[ibon_area_auto_select] skip row (not enough seats):", row_text)
-                            continue
-                    else:
-                        # 可能出現「熱賣中」等文字，不是數字就不判斷
-                        if show_debug_message:
-                            print("[ibon_area_auto_select] seat_text is not digit:", seat_text)
-                except Exception as exc:
-                    if show_debug_message:
-                        print("[ibon_area_auto_select] seat checking fail:", exc)
-
-            # 通過前述條件，先放進 formated_area_list
-            formated_area_list.append(row)
-
-        if show_debug_message:
-            print("[ibon_area_auto_select] formated_area_list count:", len(formated_area_list))
-
-    # 若最終 formated_area_list 仍為空 => 需要刷新
+        formated_area_list.append((i, row_text))
+    
+    if show_debug_message:
+        print("[ibon_area_auto_select] formated_area_list count:", len(formated_area_list))
+    
+    # 若沒有合適的區域，則需要刷新頁面
     if not formated_area_list:
         is_need_refresh = True
         if show_debug_message:
             print("[ibon_area_auto_select] formated_area_list is empty => refresh needed.")
 
-    # 進一步針對 area_keyword_item 做關鍵字匹配
+    # 根據 area_keyword_item 進行關鍵字匹配
     matched_blocks = []
     if formated_area_list:
-        # 若沒有輸入關鍵字 => 直接視為 matched_blocks
         if not area_keyword_item.strip():
             matched_blocks = formated_area_list
         else:
             area_keyword_array = [kw for kw in area_keyword_item.split() if kw.strip()]
-            for row in formated_area_list:
+            for tup in formated_area_list:
+                idx, row_text = tup
                 try:
-                    row_html = row.get_attribute('innerHTML') or ""
-                    row_text = util.remove_html_tags(row_html)
-                    row_text = util.format_keyword_string(row_text)
+                    row_text_fmt = util.format_keyword_string(row_text)
                 except Exception as exc:
                     if show_debug_message:
                         print("[ibon_area_auto_select] read row_text fail:", exc)
@@ -5090,51 +5089,83 @@ def ibon_area_auto_select(driver, config_dict, area_keyword_item):
 
                 is_match = True
                 for kw in area_keyword_array:
-                    kw_formatted = util.format_keyword_string(kw)
-                    if kw_formatted not in row_text:
+                    kw_fmt = util.format_keyword_string(kw)
+                    if kw_fmt not in row_text_fmt:
                         is_match = False
                         break
-
                 if is_match:
-                    matched_blocks.append(row)
-                    # 若從上往下選，只要第一個就好
+                    matched_blocks.append(tup)
+                    # 如果為 top_to_bottom，找到第一筆就可以退出
                     if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
                         break
 
         if show_debug_message:
             print("[ibon_area_auto_select] matched_blocks count:", len(matched_blocks))
 
-    # 取最終要點擊的 row
-    target_area = None
+    # 選取最終要點擊的區域，根據 auto_select_mode 決定
+    target_index = None
     if matched_blocks:
-        # 如果你已有 util.get_target_item_from_matched_list，可以沿用
-        target_area = util.get_target_item_from_matched_list(matched_blocks, auto_select_mode)
+        if auto_select_mode == CONST_FROM_TOP_TO_BOTTOM:
+            target_index = matched_blocks[0][0]
+        elif auto_select_mode == "bottom_to_top":
+            target_index = matched_blocks[-1][0]
+        elif auto_select_mode == "random":
+            target_index = random.choice(matched_blocks)[0]
+        else:
+            # 若遇到未知模式則預設 top_to_bottom
+            target_index = matched_blocks[0][0]
     else:
-        # 若無匹配 => 不做任何點擊
-        print("[ibon_area_auto_select] no matched_blocks => no click.")
-        pass
+        if show_debug_message:
+            print("[ibon_area_auto_select] no matched_blocks => no click.")
 
-    # 執行點擊
+    # 點擊前，重新取得最新的 shadow DOM 列表
+    target_area = None
+    if target_index is not None:
+        rows = fetch_shadow_rows()
+        if target_index < len(rows):
+            target_area = rows[target_index]
+        else:
+            if show_debug_message:
+                print("[ibon_area_auto_select] target_index out of range.")
+
+    # 嘗試點擊 target_area，採用三階段備援機制
     if target_area:
         try:
-            # 有些時候需要先滾動到可見範圍
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_area)
-
             if target_area.is_enabled():
                 target_area.click()
                 is_price_assign_by_bot = True
         except Exception as exc:
             if show_debug_message:
                 print("[ibon_area_auto_select] click target_area fail => try JS click:", exc)
-            # Plan B: JS點擊
             try:
                 driver.execute_script("arguments[0].click();", target_area)
                 is_price_assign_by_bot = True
             except Exception as exc2:
                 if show_debug_message:
-                    print("[ibon_area_auto_select] force JS click also fail:", exc2)
+                    print("[ibon_area_auto_select] JS click failed, trying dispatchEvent:", exc2)
+                try:
+                    driver.execute_script("""
+                        var target = arguments[0];
+                        var rect = target.getBoundingClientRect();
+                        var x = rect.left + rect.width / 2;
+                        var y = rect.top + rect.height / 2;
+                        var clickEvent = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: x,
+                            clientY: y
+                        });
+                        target.dispatchEvent(clickEvent);
+                    """, target_area)
+                    is_price_assign_by_bot = True
+                except Exception as exc3:
+                    if show_debug_message:
+                        print("[ibon_area_auto_select] dispatchEvent click also fail:", exc3)
     else:
-        print("[ibon_area_auto_select] no target to click.")
+        if show_debug_message:
+            print("[ibon_area_auto_select] no target to click.")
     
     return is_need_refresh, is_price_assign_by_bot
 
